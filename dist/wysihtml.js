@@ -1,5 +1,5 @@
 /**
- * @license wysihtml v0.5.0-beta13
+ * @license wysihtml v0.5.0
  * https://github.com/Voog/wysihtml
  *
  * Author: Christopher Blum (https://github.com/tiff)
@@ -10,7 +10,7 @@
  *
  */
 var wysihtml5 = {
-  version: "0.5.0-beta13",
+  version: "0.5.0",
 
   // namespaces
   commands:   {},
@@ -475,9 +475,18 @@ var wysihtml5 = {
     };
     Node.prototype.normalize = nf;
   };
-
-  if ("Node" in window && "normalize" in Node.prototype && normalizeHasCaretError()) {
-    normalizeFix();
+  
+  var F = function() {
+    window.removeEventListener("load", F);
+    if ("Node" in window && "normalize" in Node.prototype && normalizeHasCaretError()) {
+      normalizeFix();
+    }
+  };
+  
+  if (doc.readyState !== "complete") {
+    window.addEventListener("load", F);
+  } else {
+    F();
   }
 };
 
@@ -647,7 +656,11 @@ wysihtml5.browser = (function() {
     if (navigator.appName == 'Microsoft Internet Explorer') {
       re = new RegExp("MSIE ([0-9]{1,}[\.0-9]{0,})");
     } else if (navigator.appName == 'Netscape') {
-      re = new RegExp("Trident/.*rv:([0-9]{1,}[\.0-9]{0,})");
+      if (navigator.userAgent.indexOf("Trident") > -1) {
+        re = new RegExp("Trident/.*rv:([0-9]{1,}[\.0-9]{0,})");
+      } else if ((/Edge\/(\d+)./i).test(navigator.userAgent)) {
+        re = /Edge\/(\d+)./i;
+      }
     }
 
     if (re && re.exec(navigator.userAgent) != null) {
@@ -730,7 +743,7 @@ wysihtml5.browser = (function() {
      * Firefox sometimes shows a huge caret in the beginning after focusing
      */
     displaysCaretInEmptyContentEditableCorrectly: function() {
-      return isIE();
+      return isIE(12, ">");
     },
 
     /**
@@ -802,8 +815,8 @@ wysihtml5.browser = (function() {
          // When inserting unordered or ordered lists in Firefox, Chrome or Safari, the current selection or line gets
          // converted into a list (<ul><li>...</li></ul>, <ol><li>...</li></ol>)
          // IE and Opera act a bit different here as they convert the entire content of the current block element into a list
-        "insertUnorderedList":  isIE(9, ">="),
-        "insertOrderedList":    isIE(9, ">=")
+        "insertUnorderedList":  isIE(9, ">=") || isIE(12, "<="),
+        "insertOrderedList":    isIE(9, ">=")|| isIE(12, "<=")
       };
 
       // Firefox throws errors for queryCommandSupported, so we have to build up our own object of supported commands
@@ -950,7 +963,7 @@ wysihtml5.browser = (function() {
      * IE is the only browser who fires the "focus" event not immediately when .focus() is called on an element
      */
     doesAsyncFocus: function() {
-      return isIE();
+      return isIE(12, ">");
     },
 
     /**
@@ -1003,7 +1016,7 @@ wysihtml5.browser = (function() {
       Should actually check for clipboardData on paste event, but cannot in firefox
     */
     supportsModernPaste: function () {
-      return !("clipboardData" in window);
+      return !isIE();
     },
 
     // Unifies the property names of element.style by returning the suitable property name for current browser
@@ -3103,27 +3116,31 @@ wysihtml5.dom.parse = function(elementOrHtml_current, config_current) {
     }
 
 
-    if (typeof(allowedClasses) === "string" && allowedClasses === "any" && oldNode.getAttribute("class")) {
-      if (currentRules.classes_blacklist) {
-        oldClasses = oldNode.getAttribute("class");
-        if (oldClasses) {
-          classes = classes.concat(oldClasses.split(WHITE_SPACE_REG_EXP));
-        }
-
-        classesLength = classes.length;
-        for (; i<classesLength; i++) {
-          currentClass = classes[i];
-          if (!currentRules.classes_blacklist[currentClass]) {
-            newClasses.push(currentClass);
+    if (typeof(allowedClasses) === "string" && allowedClasses === "any") {
+      if (oldNode.getAttribute("class")) {
+        if (currentRules.classes_blacklist) {
+          oldClasses = oldNode.getAttribute("class");
+          if (oldClasses) {
+            classes = classes.concat(oldClasses.split(WHITE_SPACE_REG_EXP));
           }
-        }
 
-        if (newClasses.length) {
-          attributes["class"] = wysihtml5.lang.array(newClasses).unique().join(" ");
-        }
+          classesLength = classes.length;
+          for (; i<classesLength; i++) {
+            currentClass = classes[i];
+            if (!currentRules.classes_blacklist[currentClass]) {
+              newClasses.push(currentClass);
+            }
+          }
 
+          if (newClasses.length) {
+            attributes["class"] = wysihtml5.lang.array(newClasses).unique().join(" ");
+          }
+
+        } else {
+          attributes["class"] = oldNode.getAttribute("class");
+        }
       } else {
-        attributes["class"] = oldNode.getAttribute("class");
+        attributes["class"] = wysihtml5.lang.array(classes).unique().join(" ");
       }
     } else {
       // make sure that wysihtml5 temp class doesn't get stripped out
@@ -3978,7 +3995,7 @@ wysihtml5.dom.replaceWithChildNodes = function(node) {
         set = function() {
           if (view.isEmpty() && !view.placeholderSet) {
             view.placeholderSet = true;
-            view.setValue(placeholderText);
+            view.setValue(placeholderText, false);
             dom.addClass(view.element, CLASS_NAME);
           }
         };
@@ -5083,7 +5100,7 @@ wysihtml5.dom.unwrap = function(node) {
 **/
 wysihtml5.dom.getPastedHtml = function(event) {
   var html;
-  if (event.clipboardData) {
+  if (wysihtml5.browser.supportsModernPaste() && event.clipboardData) {
     if (wysihtml5.lang.array(event.clipboardData.types).contains('text/html')) {
       html = event.clipboardData.getData('text/html');
     } else if (wysihtml5.lang.array(event.clipboardData.types).contains('text/plain')) {
@@ -5953,9 +5970,15 @@ wysihtml5.quirks.ensureProperClearing = (function() {
     // Deletes selection contents making sure uneditables/unselectables are not partially deleted
     // Triggers wysihtml5:uneditable:delete custom event on all deleted uneditables if customevents suppoorted
     deleteContents: function()  {
-      var range = this.getRange(),
-          startParent, endParent, uneditables, ev;
-
+      var range = this.getRange();
+      this.deleteRangeContents(range);
+      this.setSelection(range);
+    },
+    
+    // Makes sure all uneditable sare notified before deleting contents
+    deleteRangeContents: function (range) {
+      var startParent, endParent, uneditables, ev;
+      
       if (this.unselectableClass) {
         if ((startParent = wysihtml5.dom.getParentElement(range.startContainer, { query: "." + this.unselectableClass }, false, this.contain))) {
           range.setStartBefore(startParent);
@@ -5974,10 +5997,8 @@ wysihtml5.quirks.ensureProperClearing = (function() {
             uneditables[i].dispatchEvent(ev);
           } catch (err) {}
         }
-
       }
       range.deleteContents();
-      this.setSelection(range);
     },
 
     getPreviousNode: function(node, ignoreEmpty) {
@@ -6264,28 +6285,41 @@ wysihtml5.quirks.ensureProperClearing = (function() {
     },
 
     /**
-     * Insert html at the caret position and move the cursor after the inserted html
+     * Insert html at the caret or selection position and move the cursor after the inserted html
+     * Replaces selection content if present
      *
      * @param {String} html HTML string to insert
      * @example
      *    selection.insertHTML("<p>foobar</p>");
      */
     insertHTML: function(html) {
-      var range     = rangy.createRange(this.doc),
+      var range     = this.getRange(),
           node = this.doc.createElement('DIV'),
           fragment = this.doc.createDocumentFragment(),
-          lastChild;
+          lastChild, lastEditorElement;
+      
+      if (range) {
+        range.deleteContents();
+        node.innerHTML = html;
+        lastChild = node.lastChild;
 
-      node.innerHTML = html;
-      lastChild = node.lastChild;
+        while (node.firstChild) {
+          fragment.appendChild(node.firstChild);
+        }
+        range.insertNode(fragment);
+        
+        lastEditorElement = this.contain.lastChild;
+        while (lastEditorElement && lastEditorElement.nodeType === 3 && lastEditorElement.previousSibling && (/^\s*$/).test(lastEditorElement.data)) {
+          lastEditorElement = lastEditorElement.previousSibling;
+        }
 
-      while (node.firstChild) {
-        fragment.appendChild(node.firstChild);
-      }
-      this.insertNode(fragment);
-
-      if (lastChild) {
-        this.setAfter(lastChild);
+        if (lastChild) {
+          // fixes some pad cases mostly on webkit where last nr is needed
+          if (lastEditorElement && lastChild === lastEditorElement && lastChild.nodeType === 1) {
+            this.contain.appendChild(this.doc.createElement('br'));
+          }
+          this.setAfter(lastChild);
+        }
       }
     },
 
@@ -6486,9 +6520,20 @@ wysihtml5.quirks.ensureProperClearing = (function() {
      * See https://developer.mozilla.org/en/DOM/Selection/modify
      */
     _selectLine_W3C: function() {
-      var selection = this.win.getSelection();
+      var selection = this.win.getSelection(),
+          initialBoundry = [selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset];
+          
       selection.modify("move", "left", "lineboundary");
       selection.modify("extend", "right", "lineboundary");
+      
+      // IF lineboundary extending did not change selection try universal fallback (FF fails sometimes without a reason)
+      if (selection.anchorNode === initialBoundry[0] &&
+          selection.anchorOffset === initialBoundry[1] &&
+          selection.focusNode === initialBoundry[2] &&
+          selection.focusOffset === initialBoundry[3]
+      ) {
+        this._selectLineUniversal();
+      }
     },
 
     // collapses selection to current line beginning or end
@@ -8283,16 +8328,19 @@ wysihtml5.Commands = Base.extend(
       
       // Restore correct selection
       if (bookmark) {
+        wysihtml5.dom.removeInvisibleSpaces(composer.element);
         rangy.restoreSelection(bookmark);
       } else {
+        wysihtml5.dom.removeInvisibleSpaces(composer.element);
+        // Set selection to beging inside first created block element (beginning of it) and end inside (and after content) of last block element
+        // TODO: Checking nodetype might be unnescescary as nodes inserted by formatBlock are nodetype 1 anyway
         range = composer.selection.createRange();
-        range.setStartBefore(newBlockElements[0]);
-        range.setEndAfter(newBlockElements[newBlockElements.length - 1]);
-        composer.selection.setSelection(range);
+        range.setStart(newBlockElements[0], 0);
+        var lastEl = newBlockElements[newBlockElements.length - 1],
+            lastOffset = (lastEl.nodeType === 1 && lastEl.childNodes) ? lastEl.childNodes.length | 0 :  lastEl.length || 0;
+        range.setEnd(lastEl, lastOffset);
+        range.select();
       }
-
-      wysihtml5.dom.removeInvisibleSpaces(composer.element);
-
     },
 
     // If properties as null is passed returns status describing all block level elements
@@ -9049,11 +9097,7 @@ wysihtml5.Commands = Base.extend(
 ;(function(wysihtml5){
   wysihtml5.commands.insertHTML = {
     exec: function(composer, command, html) {
-      if (composer.commands.support(command)) {
-        composer.doc.execCommand(command, false, html);
-      } else {
         composer.selection.insertHTML(html);
-      }
     },
 
     state: function() {
@@ -9175,14 +9219,7 @@ wysihtml5.Commands = Base.extend(
 
   wysihtml5.commands.insertLineBreak = {
     exec: function(composer, command) {
-      if (composer.commands.support(command)) {
-        composer.doc.execCommand(command, false, null);
-        if (!wysihtml5.browser.autoScrollsToCaret()) {
-          composer.selection.scrollIntoView();
-        }
-      } else {
-        composer.commands.exec("insertHTML", LINE_BREAK);
-      }
+      composer.selection.insertHTML(LINE_BREAK);
     },
 
     state: function() {
@@ -9320,27 +9357,33 @@ wysihtml5.Commands = Base.extend(
   };
 
   var createListFallback = function(nodeName, composer) {
+    var sel;
+
+    if (!composer.selection.isCollapsed()) {
+      sel = rangy.saveSelection(composer.win);
+    }
+
     // Fallback for Create list
-    composer.selection.executeAndRestoreRangy(function() {
-      var tempClassName =  "_wysihtml5-temp-" + new Date().getTime(),
-          tempElement = composer.selection.deblockAndSurround({
-            "nodeName": "div",
-            "className": tempClassName
-          }),
-          isEmpty, list;
+    var tempClassName =  "_wysihtml5-temp-" + new Date().getTime(),
+        tempElement = composer.selection.deblockAndSurround({
+          "nodeName": "div",
+          "className": tempClassName
+        }),
+        isEmpty, list;
 
-      // This space causes new lists to never break on enter
-      var INVISIBLE_SPACE_REG_EXP = /\uFEFF/g;
-      tempElement.innerHTML = tempElement.innerHTML.replace(wysihtml5.INVISIBLE_SPACE_REG_EXP, "");
-
-      if (tempElement) {
-        isEmpty = wysihtml5.lang.array(["", "<br>", wysihtml5.INVISIBLE_SPACE]).contains(tempElement.innerHTML);
-        list = wysihtml5.dom.convertToList(tempElement, nodeName.toLowerCase(), composer.parent.config.classNames.uneditableContainer);
-        if (isEmpty) {
-          composer.selection.selectNode(list.querySelector("li"), true);
-        }
+    // This space causes new lists to never break on enter
+    var INVISIBLE_SPACE_REG_EXP = /\uFEFF/g;
+    tempElement.innerHTML = tempElement.innerHTML.replace(wysihtml5.INVISIBLE_SPACE_REG_EXP, "");
+    if (tempElement) {
+      isEmpty = (/^(\s|(<br>))+$/i).test(tempElement.innerHTML);
+      list = wysihtml5.dom.convertToList(tempElement, nodeName.toLowerCase(), composer.parent.config.classNames.uneditableContainer);
+      if (sel) {
+        rangy.restoreSelection(sel);
       }
-    });
+      if (isEmpty) {
+        composer.selection.selectNode(list.querySelector("li"), true);
+      }
+    }
   };
 
   return {
@@ -9349,7 +9392,6 @@ wysihtml5.Commands = Base.extend(
           cmd           = (nodeName === "OL") ? "insertOrderedList" : "insertUnorderedList",
           selectedNode  = composer.selection.getSelectedNode(),
           list          = findListEl(selectedNode, nodeName, composer);
-
 
       if (!list.el) {
         if (composer.commands.support(cmd)) {
@@ -9519,6 +9561,24 @@ wysihtml5.Commands = Base.extend(
     }
   };
 
+})(wysihtml5);
+;(function(wysihtml5) {
+
+  var nodeOptions = {
+    styleProperty: "textAlign",
+    styleValue: "justify",
+    toggle: true
+  };
+
+  wysihtml5.commands.alignJustifyStyle = {
+    exec: function(composer, command) {
+      return wysihtml5.commands.formatBlock.exec(composer, "formatBlock", nodeOptions);
+    },
+
+    state: function(composer, command) {
+      return wysihtml5.commands.formatBlock.state(composer, "formatBlock", nodeOptions);
+    }
+  };
 })(wysihtml5);
 ;(function(wysihtml5){
   wysihtml5.commands.redo = {
@@ -10121,9 +10181,6 @@ wysihtml5.views.View = Base.extend(
     /** @scope wysihtml5.views.Composer.prototype */ {
     name: "composer",
 
-    // Needed for firefox in order to display a proper caret in an empty contentEditable
-    CARET_HACK: "<br>",
-
     constructor: function(parent, editableElement, config) {
       this.base(parent, editableElement, config);
       if (!this.config.noTextarea) {
@@ -10139,7 +10196,7 @@ wysihtml5.views.View = Base.extend(
     },
 
     clear: function() {
-      this.element.innerHTML = browser.displaysCaretInEmptyContentEditableCorrectly() ? "" : this.CARET_HACK;
+      this.element.innerHTML = browser.displaysCaretInEmptyContentEditableCorrectly() ? "" : "<br>";
     },
 
     getValue: function(parse, clearInternals) {
@@ -10147,12 +10204,11 @@ wysihtml5.views.View = Base.extend(
       if (parse !== false) {
         value = this.parent.parse(value, (clearInternals === false) ? false : true);
       }
-
       return value;
     },
 
     setValue: function(html, parse) {
-      if (parse) {
+      if (parse !== false) {
         html = this.parent.parse(html);
       }
 
@@ -10163,12 +10219,12 @@ wysihtml5.views.View = Base.extend(
       }
     },
 
-    cleanUp: function() {
+    cleanUp: function(rules) {
       var bookmark;
       if (this.selection) {
         bookmark = rangy.saveSelection(this.win);
       }
-      this.parent.parse(this.element);
+      this.parent.parse(this.element, undefined, rules);
       if (bookmark) {
         rangy.restoreSelection(bookmark);
       }
@@ -10401,8 +10457,12 @@ wysihtml5.views.View = Base.extend(
       var that                           = this,
           supportsDisablingOfAutoLinking = browser.canDisableAutoLinking(),
           supportsAutoLinking            = browser.doesAutoLinkingInContentEditable();
+
       if (supportsDisablingOfAutoLinking) {
-        this.commands.exec("autoUrlDetect", false);
+        // I have no idea why IE edge deletes element content here when calling the command,
+        var tmpHTML = this.element.innerHTML;
+        this.commands.exec("AutoUrlDetect", false, false);
+        this.element.innerHTML = tmpHTML;
       }
 
       if (!this.config.autoLink) {
@@ -10551,17 +10611,6 @@ wysihtml5.views.View = Base.extend(
           }
         });
       }
-
-      // Under certain circumstances Chrome + Safari create nested <p> or <hX> tags after paste
-      // Inserting an invisible white space in front of it fixes the issue
-      // This is too hacky and causes selection not to replace content on paste in chrome
-     /* if (browser.createsNestedInvalidMarkupAfterPaste()) {
-        dom.observe(this.element, "paste", function(event) {
-          var invisibleSpace = that.doc.createTextNode(wysihtml5.INVISIBLE_SPACE);
-          that.selection.insertNode(invisibleSpace);
-        });
-      }*/
-
 
       dom.observe(this.element, "keydown", function(event) {
         var keyCode = event.keyCode;
@@ -11009,7 +11058,7 @@ wysihtml5.views.View = Base.extend(
     if (this.config.copyedFromMarking) {
       // If supported the copied source can be based directly on selection
       // Very useful for webkit based browsers where copy will otherwise contain a lot of code and styles based on whatever and not actually in selection.
-      if (event.clipboardData) {
+      if (wysihtml5.browser.supportsModernPaste()) {
         event.clipboardData.setData("text/html", this.config.copyedFromMarking + this.selection.getHtml());
         event.clipboardData.setData("text/plain", this.selection.getPlainText());
         event.preventDefault();
@@ -11085,7 +11134,7 @@ wysihtml5.views.View = Base.extend(
         target, parent;
 
     // Select all (meta/ctrl + a)
-    if ((event.ctrlKey || event.metaKey) && keyCode === 65) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && keyCode === 65) {
       this.selection.selectAll();
       event.preventDefault();
       return;
@@ -11145,9 +11194,10 @@ wysihtml5.views.View = Base.extend(
   // If present enableObjectResizing and enableInlineTableEditing command should be called with false to prevent native table handlers
   var initTableHandling = function () {
     var hideHandlers = function () {
+          window.removeEventListener('load', hideHandlers);
           this.doc.execCommand("enableObjectResizing", false, "false");
           this.doc.execCommand("enableInlineTableEditing", false, "false");
-        },
+        }.bind(this),
         iframeInitiator = (function() {
           hideHandlers.call(this);
           removeListeners(this.sandbox.getIframe(), ["focus", "mouseup", "mouseover"], iframeInitiator);
@@ -11160,9 +11210,7 @@ wysihtml5.views.View = Base.extend(
       if (this.sandbox.getIframe) {
         addListeners(this.sandbox.getIframe(), ["focus", "mouseup", "mouseover"], iframeInitiator);
       } else {
-        setTimeout((function() {
-          hideHandlers.call(this);
-        }).bind(this), 0);
+        window.addEventListener('load', hideHandlers);
       }
     }
     this.tableSelection = wysihtml5.quirks.tableCellsSelection(this.element, this.parent);
@@ -11389,14 +11437,14 @@ wysihtml5.views.View = Base.extend(
   },
 
   setValue: function(html, parse) {
-    if (parse) {
+    if (parse !== false) {
       html = this.parent.parse(html);
     }
     this.element.value = html;
   },
 
-  cleanUp: function() {
-      var html = this.parent.parse(this.element.value);
+  cleanUp: function(rules) {
+      var html = this.parent.parse(this.element.value, undefined, rules);
       this.element.value = html;
   },
 
@@ -11491,7 +11539,7 @@ wysihtml5.views.View = Base.extend(
     handleTabKey:         true,
     // Object which includes parser rules to apply when html gets cleaned
     // See parser_rules/*.js for examples
-    parserRules:          { tags: { br: {}, span: {}, div: {}, p: {} }, classes: {} },
+    parserRules:          { tags: { br: {}, span: {}, div: {}, p: {}, b: {}, i: {}, u: {} }, classes: {} },
     // Object which includes parser when the user inserts content via copy & paste. If null parserRules will be used instead
     pasteParserRulesets: null,
     // Parser method to use when the user inserts content
@@ -11603,8 +11651,8 @@ wysihtml5.views.View = Base.extend(
       return this;
     },
 
-    cleanUp: function() {
-        this.currentView.cleanUp();
+    cleanUp: function(rules) {
+        this.currentView.cleanUp(rules);
     },
 
     focus: function(setToEnd) {
@@ -11646,10 +11694,10 @@ wysihtml5.views.View = Base.extend(
       this.off();
     },
 
-    parse: function(htmlOrElement, clearInternals) {
+    parse: function(htmlOrElement, clearInternals, customRules) {
       var parseContext = (this.config.contentEditableMode) ? document : ((this.composer) ? this.composer.sandbox.getDocument() : null);
       var returnValue = this.config.parser(htmlOrElement, {
-        "rules": this.config.parserRules,
+        "rules": customRules || this.config.parserRules,
         "cleanUp": this.config.cleanUp,
         "context": parseContext,
         "uneditableClass": this.config.classNames.uneditableContainer,

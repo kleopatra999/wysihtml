@@ -396,9 +396,15 @@
     // Deletes selection contents making sure uneditables/unselectables are not partially deleted
     // Triggers wysihtml5:uneditable:delete custom event on all deleted uneditables if customevents suppoorted
     deleteContents: function()  {
-      var range = this.getRange(),
-          startParent, endParent, uneditables, ev;
-
+      var range = this.getRange();
+      this.deleteRangeContents(range);
+      this.setSelection(range);
+    },
+    
+    // Makes sure all uneditable sare notified before deleting contents
+    deleteRangeContents: function (range) {
+      var startParent, endParent, uneditables, ev;
+      
       if (this.unselectableClass) {
         if ((startParent = wysihtml5.dom.getParentElement(range.startContainer, { query: "." + this.unselectableClass }, false, this.contain))) {
           range.setStartBefore(startParent);
@@ -417,10 +423,8 @@
             uneditables[i].dispatchEvent(ev);
           } catch (err) {}
         }
-
       }
       range.deleteContents();
-      this.setSelection(range);
     },
 
     getPreviousNode: function(node, ignoreEmpty) {
@@ -707,28 +711,41 @@
     },
 
     /**
-     * Insert html at the caret position and move the cursor after the inserted html
+     * Insert html at the caret or selection position and move the cursor after the inserted html
+     * Replaces selection content if present
      *
      * @param {String} html HTML string to insert
      * @example
      *    selection.insertHTML("<p>foobar</p>");
      */
     insertHTML: function(html) {
-      var range     = rangy.createRange(this.doc),
+      var range     = this.getRange(),
           node = this.doc.createElement('DIV'),
           fragment = this.doc.createDocumentFragment(),
-          lastChild;
+          lastChild, lastEditorElement;
+      
+      if (range) {
+        range.deleteContents();
+        node.innerHTML = html;
+        lastChild = node.lastChild;
 
-      node.innerHTML = html;
-      lastChild = node.lastChild;
+        while (node.firstChild) {
+          fragment.appendChild(node.firstChild);
+        }
+        range.insertNode(fragment);
+        
+        lastEditorElement = this.contain.lastChild;
+        while (lastEditorElement && lastEditorElement.nodeType === 3 && lastEditorElement.previousSibling && (/^\s*$/).test(lastEditorElement.data)) {
+          lastEditorElement = lastEditorElement.previousSibling;
+        }
 
-      while (node.firstChild) {
-        fragment.appendChild(node.firstChild);
-      }
-      this.insertNode(fragment);
-
-      if (lastChild) {
-        this.setAfter(lastChild);
+        if (lastChild) {
+          // fixes some pad cases mostly on webkit where last nr is needed
+          if (lastEditorElement && lastChild === lastEditorElement && lastChild.nodeType === 1) {
+            this.contain.appendChild(this.doc.createElement('br'));
+          }
+          this.setAfter(lastChild);
+        }
       }
     },
 
@@ -929,9 +946,20 @@
      * See https://developer.mozilla.org/en/DOM/Selection/modify
      */
     _selectLine_W3C: function() {
-      var selection = this.win.getSelection();
+      var selection = this.win.getSelection(),
+          initialBoundry = [selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset];
+          
       selection.modify("move", "left", "lineboundary");
       selection.modify("extend", "right", "lineboundary");
+      
+      // IF lineboundary extending did not change selection try universal fallback (FF fails sometimes without a reason)
+      if (selection.anchorNode === initialBoundry[0] &&
+          selection.anchorOffset === initialBoundry[1] &&
+          selection.focusNode === initialBoundry[2] &&
+          selection.focusOffset === initialBoundry[3]
+      ) {
+        this._selectLineUniversal();
+      }
     },
 
     // collapses selection to current line beginning or end

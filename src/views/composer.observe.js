@@ -198,7 +198,7 @@
     if (this.config.copyedFromMarking) {
       // If supported the copied source can be based directly on selection
       // Very useful for webkit based browsers where copy will otherwise contain a lot of code and styles based on whatever and not actually in selection.
-      if (event.clipboardData) {
+      if (wysihtml5.browser.supportsModernPaste()) {
         event.clipboardData.setData("text/html", this.config.copyedFromMarking + this.selection.getHtml());
         event.clipboardData.setData("text/plain", this.selection.getPlainText());
         event.preventDefault();
@@ -274,7 +274,7 @@
         target, parent;
 
     // Select all (meta/ctrl + a)
-    if ((event.ctrlKey || event.metaKey) && keyCode === 65) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && keyCode === 65) {
       this.selection.selectAll();
       event.preventDefault();
       return;
@@ -334,9 +334,10 @@
   // If present enableObjectResizing and enableInlineTableEditing command should be called with false to prevent native table handlers
   var initTableHandling = function () {
     var hideHandlers = function () {
+          window.removeEventListener('load', hideHandlers);
           this.doc.execCommand("enableObjectResizing", false, "false");
           this.doc.execCommand("enableInlineTableEditing", false, "false");
-        },
+        }.bind(this),
         iframeInitiator = (function() {
           hideHandlers.call(this);
           removeListeners(this.sandbox.getIframe(), ["focus", "mouseup", "mouseover"], iframeInitiator);
@@ -349,9 +350,7 @@
       if (this.sandbox.getIframe) {
         addListeners(this.sandbox.getIframe(), ["focus", "mouseup", "mouseover"], iframeInitiator);
       } else {
-        setTimeout((function() {
-          hideHandlers.call(this);
-        }).bind(this), 0);
+        window.addEventListener('load', hideHandlers);
       }
     }
     this.tableSelection = wysihtml5.quirks.tableCellsSelection(this.element, this.parent);

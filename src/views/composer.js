@@ -6,9 +6,6 @@
     /** @scope wysihtml5.views.Composer.prototype */ {
     name: "composer",
 
-    // Needed for firefox in order to display a proper caret in an empty contentEditable
-    CARET_HACK: "<br>",
-
     constructor: function(parent, editableElement, config) {
       this.base(parent, editableElement, config);
       if (!this.config.noTextarea) {
@@ -24,7 +21,7 @@
     },
 
     clear: function() {
-      this.element.innerHTML = browser.displaysCaretInEmptyContentEditableCorrectly() ? "" : this.CARET_HACK;
+      this.element.innerHTML = browser.displaysCaretInEmptyContentEditableCorrectly() ? "" : "<br>";
     },
 
     getValue: function(parse, clearInternals) {
@@ -32,12 +29,11 @@
       if (parse !== false) {
         value = this.parent.parse(value, (clearInternals === false) ? false : true);
       }
-
       return value;
     },
 
     setValue: function(html, parse) {
-      if (parse) {
+      if (parse !== false) {
         html = this.parent.parse(html);
       }
 
@@ -48,12 +44,12 @@
       }
     },
 
-    cleanUp: function() {
+    cleanUp: function(rules) {
       var bookmark;
       if (this.selection) {
         bookmark = rangy.saveSelection(this.win);
       }
-      this.parent.parse(this.element);
+      this.parent.parse(this.element, undefined, rules);
       if (bookmark) {
         rangy.restoreSelection(bookmark);
       }
@@ -286,8 +282,12 @@
       var that                           = this,
           supportsDisablingOfAutoLinking = browser.canDisableAutoLinking(),
           supportsAutoLinking            = browser.doesAutoLinkingInContentEditable();
+
       if (supportsDisablingOfAutoLinking) {
-        this.commands.exec("autoUrlDetect", false);
+        // I have no idea why IE edge deletes element content here when calling the command,
+        var tmpHTML = this.element.innerHTML;
+        this.commands.exec("AutoUrlDetect", false, false);
+        this.element.innerHTML = tmpHTML;
       }
 
       if (!this.config.autoLink) {
@@ -436,17 +436,6 @@
           }
         });
       }
-
-      // Under certain circumstances Chrome + Safari create nested <p> or <hX> tags after paste
-      // Inserting an invisible white space in front of it fixes the issue
-      // This is too hacky and causes selection not to replace content on paste in chrome
-     /* if (browser.createsNestedInvalidMarkupAfterPaste()) {
-        dom.observe(this.element, "paste", function(event) {
-          var invisibleSpace = that.doc.createTextNode(wysihtml5.INVISIBLE_SPACE);
-          that.selection.insertNode(invisibleSpace);
-        });
-      }*/
-
 
       dom.observe(this.element, "keydown", function(event) {
         var keyCode = event.keyCode;

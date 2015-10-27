@@ -295,6 +295,7 @@ if (wysihtml5.browser.supported()) {
           text = "test";
         
       editor.on("load", function() {
+        editor.focus();
         var editableElement   = that.editableArea1,
             expectText = '<table style="width: 100%;">' +
                            '<tbody>' +
@@ -307,9 +308,9 @@ if (wysihtml5.browser.supported()) {
                                 '<td><br></td>' +
                               '</tr>' +
                             '</tbody>' +
-                          '</table>';
+                          '</table><br>';
         editor.setValue(text, true);
-        editor.composer.selection.selectNode(editor.editableElement);
+        editor.composer.selection.selectNode(editor.editableElement.firstChild);
         editor.composer.commands.exec('createTable', {
           cols: 2,
           rows: 2,
@@ -328,6 +329,7 @@ if (wysihtml5.browser.supported()) {
           text = "";
         
       editor.on("load", function() {
+        editor.focus();
         var editableElement   = that.editableArea1,
             expectText = '<ul><li></li></ul>',
             expectTextBr = '<ul><li><br></li></ul>',
@@ -364,8 +366,6 @@ if (wysihtml5.browser.supported()) {
 
         editor.composer.commands.exec('outdentList');
         equal(editableElement.innerHTML.toLowerCase(), '<ul><li>test</li></ul><br>test<ul><li>test</li></ul>', "List outdent escapes current list item correctly out of list");
-
-
         start();
       });
     });
